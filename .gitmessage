@@ -1,0 +1,16 @@
+# Commit Message Template
+
+# Type can be: feat, fix, docs, style, refactor, test, chore
+# <type>(<scope>): <subject>
+
+# Example:
+# feat(pose): improve ICP convergence with better initial alignment
+# fix(detector): handle edge case for empty masks
+# docs(readme): update installation instructions
+# refactor(pipeline): extract visualization logic to separate module
+
+# Body: Explain what and why (not how)
+
+# Footer: Reference issues, breaking changes
+# Closes #123
+# BREAKING CHANGE: API changed for PoseEstimator.estimate_pose()

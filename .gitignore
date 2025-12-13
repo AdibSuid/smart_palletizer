@@ -1,0 +1,52 @@
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+results/
+output/
+*.ply
+!*mesh.ply
+!*raw.ply
+*.png
+!docs/imgs/*.png
+!data/**/*.png
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# Logs
+*.log
