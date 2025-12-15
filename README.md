@@ -86,8 +86,8 @@ Data are provided in two formats:
 2. RAW data:
 
     the [data](./data/) folder, there you can find two types of boxes:
-    1. **small box**: dimensions: [0.340, 0.250, 0.095] in meters.
-    2. **medium box**: dimensions: [0.255, 0.155, 0.100] in meters (only one box in the left bottom corner is visible).
+    1. **small box**: dimensions: [0.255, 0.155, 0.100] in meters.
+    2. **medium box**: dimensions: [0.340, 0.250, 0.095] in meters (only one box in the left bottom corner is visible).
 
     Provided data includes color/depth images in addition to box meshes, and other forms of data that is useful to solve the tasks.
 

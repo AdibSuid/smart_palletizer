@@ -37,14 +37,23 @@ class PoseEstimator:
     def load_box_mesh(self, filepath: str) -> o3d.geometry.PointCloud:
         """
         Load a box mesh and convert to point cloud template.
-        
+
         Args:
             filepath: Path to the mesh file
-            
+
         Returns:
             Point cloud sampled from the mesh
         """
         mesh = o3d.io.read_triangle_mesh(filepath)
+
+        # Check if mesh is in millimeters and convert to meters
+        vertices = np.asarray(mesh.vertices)
+        max_dim = np.max(vertices.max(axis=0) - vertices.min(axis=0))
+
+        # If largest dimension > 10, assume it's in millimeters
+        if max_dim > 10:
+            mesh.scale(0.001, center=(0, 0, 0))
+
         # Sample points from mesh
         pcd = mesh.sample_points_uniformly(number_of_points=5000)
         return pcd
@@ -218,28 +227,30 @@ class PoseEstimator:
     
     def estimate_multiple_boxes(self, point_clouds: List[o3d.geometry.PointCloud],
                                 template_pcd: o3d.geometry.PointCloud,
-                                box_dimensions: np.ndarray) -> List[Dict]:
+                                box_dimensions: np.ndarray,
+                                min_fitness: float = 0.01) -> List[Dict]:
         """
         Estimate poses for multiple boxes.
-        
+
         Args:
             point_clouds: List of segmented box point clouds
             template_pcd: Template point cloud for matching
             box_dimensions: Expected box dimensions
-            
+            min_fitness: Minimum ICP fitness to accept (default 1%)
+
         Returns:
-            List of pose dictionaries
+            List of pose dictionaries (only successful poses)
         """
         poses = []
-        
+
         for i, pcd in enumerate(point_clouds):
             if len(pcd.points) < 10:
                 continue
-            
+
             # Get OBB for initial pose
             obb = pcd.get_oriented_bounding_box()
             initial_pose_dict = self.estimate_pose_from_obb(obb)
-            
+
             # Try to refine with ICP if template is provided
             if template_pcd is not None and len(pcd.points) > 50:
                 try:
@@ -248,17 +259,23 @@ class PoseEstimator:
                     )
                     refined_pose['id'] = i
                     refined_pose['method'] = 'ICP_refined'
-                    poses.append(refined_pose)
+
+                    # Only add pose if ICP fitness is good enough
+                    if refined_pose.get('fitness', 0) >= min_fitness:
+                        poses.append(refined_pose)
+                    else:
+                        print(f"    ⚠ Box {i}: ICP fitness {refined_pose.get('fitness', 0):.1%} too low - skipped")
                 except:
                     # Fall back to OBB-based pose
                     initial_pose_dict['id'] = i
                     initial_pose_dict['method'] = 'OBB_only'
-                    poses.append(initial_pose_dict)
+                    initial_pose_dict['fitness'] = 0.0
+                    # Don't add OBB-only poses as they're unreliable
+                    print(f"    ⚠ Box {i}: ICP failed - skipped")
             else:
-                initial_pose_dict['id'] = i
-                initial_pose_dict['method'] = 'OBB_only'
-                poses.append(initial_pose_dict)
-        
+                # Don't add boxes without ICP refinement
+                print(f"    ⚠ Box {i}: Too few points or no template - skipped")
+
         return poses
     
     def create_box_mesh(self, dimensions: np.ndarray, pose: Dict) -> o3d.geometry.TriangleMesh:

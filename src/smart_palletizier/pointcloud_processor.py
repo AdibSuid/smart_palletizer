@@ -24,11 +24,11 @@ class PointCloudProcessor:
         std_ratio (float): Standard deviation ratio for statistical outlier removal
     """
     
-    def __init__(self, voxel_size: float = 0.002, nb_neighbors: int = 20, 
+    def __init__(self, voxel_size: float = 0.002, nb_neighbors: int = 20,
                  std_ratio: float = 2.0):
         """
         Initialize the PointCloudProcessor.
-        
+
         Args:
             voxel_size: Size of voxel for downsampling (in meters)
             nb_neighbors: Number of neighbors to analyze for outlier removal

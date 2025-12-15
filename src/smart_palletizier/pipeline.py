@@ -26,6 +26,8 @@ from smart_palletizier.pointcloud_processor import PointCloudProcessor
 from smart_palletizier.planar_detector import PlanarPatchDetector
 from smart_palletizier.pose_estimator import PoseEstimator
 from smart_palletizier.visualization import Visualizer
+from smart_palletizier.box_segmenter import BoxSegmenter
+from smart_palletizier.box_extractor import BoxExtractor
 
 
 def load_camera_intrinsics(filepath: str) -> dict:
@@ -224,60 +226,67 @@ def run_task3_pointcloud_cleaning(data_folder: Path, box_type: str = "small_box"
 def run_task4_pose_estimation(data_folder: Path, box_type: str = "small_box"):
     """
     Task 4: 6D Pose Estimation
-    
+
     Estimate position and orientation of boxes in the scene.
     """
     print(f"\n{'='*60}")
     print(f"Task 4: 6D Pose Estimation - {box_type}")
     print(f"{'='*60}")
-    
+
     # Initialize processors
     pcd_processor = PointCloudProcessor()
     pose_estimator = PoseEstimator(icp_threshold=0.002, icp_max_iterations=2000)
-    
+    box_extractor = BoxExtractor(eps=0.02, min_points=50)
+
     # Define box dimensions (from task description)
+    # Note: The mesh files were swapped - small_box_mesh.ply is actually medium size
     if box_type == "small_box":
-        box_dimensions = np.array([0.340, 0.250, 0.095])  # meters
+        box_dimensions = np.array([0.255, 0.155, 0.100])  # meters (actually medium)
     else:  # medium_box
-        box_dimensions = np.array([0.255, 0.155, 0.100])  # meters
-    
+        box_dimensions = np.array([0.340, 0.250, 0.095])  # meters (actually small)
+
     print(f"Box dimensions: {box_dimensions}")
-    
+
     # Load template mesh if available
     mesh_file = data_folder / f"{box_type}_mesh.ply"
     template_pcd = None
-    
+
     if mesh_file.exists():
         print(f"Loading template mesh: {mesh_file.name}")
         template_pcd = pose_estimator.load_box_mesh(str(mesh_file))
         print(f"Template points: {len(template_pcd.points)}")
-    
-    # Load point clouds
+
+    # Load raw point cloud files (labeled per box but contain background)
     pcd_files = list(data_folder.glob(f"{box_type}_*_raw.ply"))
-    print(f"\nProcessing {len(pcd_files)} boxes")
-    
-    point_clouds = []
+    print(f"\nProcessing {len(pcd_files)} point clouds")
+
     cleaned_clouds = []
-    
-    # Clean all point clouds first
-    for pcd_file in pcd_files:
+    for i, pcd_file in enumerate(pcd_files):
         pcd = pcd_processor.load_pointcloud(str(pcd_file))
+
+        # Simple cleaning - don't be too aggressive
         cleaned = pcd_processor.clean_pointcloud(pcd, downsample=True, remove_outliers=True)
-        point_clouds.append(pcd)
-        cleaned_clouds.append(cleaned)
-    
+
+        if len(cleaned.points) > 50:
+            cleaned_clouds.append(cleaned)
+
+    if not cleaned_clouds:
+        print("No boxes found to process")
+        return [], []
+
     # Estimate poses
+    print(f"\nEstimating poses for {len(cleaned_clouds)} boxes...")
     poses = pose_estimator.estimate_multiple_boxes(cleaned_clouds, template_pcd, box_dimensions)
-    
+
     print(f"\nEstimated poses for {len(poses)} boxes:")
     for pose in poses:
         Visualizer.print_pose_info(pose, pose['id'])
-    
+
     # Save results
     results_file = data_folder / f"{box_type}_pose_results.txt"
     Visualizer.save_results_to_file(poses, str(results_file))
     print(f"Results saved to: {results_file}")
-    
+
     # Visualize poses
     if poses:
         print("\nVisualizing estimated poses (close window to continue)...")
@@ -286,7 +295,7 @@ def run_task4_pose_estimation(data_folder: Path, box_type: str = "small_box"):
                                        window_name=f"Pose Estimation - {box_type}")
         except Exception as e:
             print(f"  Note: Visualization skipped (display not available): {e}")
-    
+
     return poses, cleaned_clouds
 
 
