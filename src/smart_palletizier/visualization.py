@@ -9,7 +9,9 @@ import cv2
 import numpy as np
 import open3d as o3d
 import matplotlib.pyplot as plt
+import json
 from typing import List, Dict, Optional, Tuple
+from pathlib import Path
 
 
 class Visualizer:
@@ -335,22 +337,178 @@ class Visualizer:
                              save_path: Optional[str] = None) -> np.ndarray:
         """
         Visualize depth image with colormap.
-        
+
         Args:
             depth_image: Depth image array
             save_path: Optional path to save visualization
-            
+
         Returns:
             Colorized depth image
         """
         # Normalize depth for visualization
         depth_normalized = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX)
         depth_normalized = depth_normalized.astype(np.uint8)
-        
+
         # Apply colormap
         depth_colored = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
-        
+
         if save_path:
             cv2.imwrite(save_path, depth_colored)
-        
+
         return depth_colored
+
+    @staticmethod
+    def project_3d_to_2d(point_3d: np.ndarray, camera_matrix: np.ndarray) -> Tuple[int, int, float]:
+        """
+        Project a 3D point to 2D image coordinates using camera intrinsics.
+
+        Args:
+            point_3d: 3D point [x, y, z]
+            camera_matrix: 3x3 camera intrinsic matrix
+
+        Returns:
+            Tuple of (u, v, depth) - image coordinates and depth
+        """
+        # Project 3D point to 2D
+        point_2d_homogeneous = camera_matrix @ point_3d
+
+        # Convert from homogeneous coordinates
+        depth = point_2d_homogeneous[2]
+        if depth > 0:  # Point is in front of camera
+            u = int(point_2d_homogeneous[0] / depth)
+            v = int(point_2d_homogeneous[1] / depth)
+        else:
+            u, v = -1, -1  # Behind camera
+
+        return u, v, depth
+
+    @staticmethod
+    def draw_pose_axes_2d(image: np.ndarray, pose: Dict, camera_intrinsics: Dict,
+                         axis_length: float = 0.15, line_thickness: int = 4) -> np.ndarray:
+        """
+        Draw 3D pose axes projected onto a 2D image.
+
+        Args:
+            image: Input color image
+            pose: Pose dictionary with transformation matrix
+            camera_intrinsics: Camera intrinsics dictionary with fx, fy, cx, cy
+            axis_length: Length of axes in meters (default 0.15m = 15cm)
+            line_thickness: Thickness of drawn lines (default 4)
+
+        Returns:
+            Image with drawn pose axes
+        """
+        result = image.copy()
+        height, width = image.shape[:2]
+
+        # Build camera matrix
+        K = np.array([
+            [camera_intrinsics['fx'], 0, camera_intrinsics['cx']],
+            [0, camera_intrinsics['fy'], camera_intrinsics['cy']],
+            [0, 0, 1]
+        ])
+
+        # Get pose transformation
+        T = pose['transformation']
+
+        # Define axes in 3D (origin and endpoints)
+        origin = T[:3, 3]  # Origin at pose position
+        x_axis = origin + T[:3, 0] * axis_length  # Red: X-axis
+        y_axis = origin + T[:3, 1] * axis_length  # Green: Y-axis
+        z_axis = origin + T[:3, 2] * axis_length  # Blue: Z-axis
+
+        # Project points to 2D
+        origin_u, origin_v, origin_depth = Visualizer.project_3d_to_2d(origin, K)
+        x_u, x_v, x_depth = Visualizer.project_3d_to_2d(x_axis, K)
+        y_u, y_v, y_depth = Visualizer.project_3d_to_2d(y_axis, K)
+        z_u, z_v, z_depth = Visualizer.project_3d_to_2d(z_axis, K)
+
+        # Helper function to clip line to image bounds
+        def clip_to_bounds(p1, p2):
+            """Clip line to image bounds."""
+            x1, y1 = p1
+            x2, y2 = p2
+
+            # Simple clipping - just check if at least one point is visible
+            p1_visible = (0 <= x1 < width) and (0 <= y1 < height)
+            p2_visible = (0 <= x2 < width) and (0 <= y2 < height)
+
+            return p1_visible or p2_visible
+
+        # Draw axes only if origin is in front of camera and visible
+        if origin_depth > 0:
+            origin_2d = (origin_u, origin_v)
+
+            # Check if origin is roughly in bounds (allow some margin)
+            if -width < origin_u < width*2 and -height < origin_v < height*2:
+
+                # Draw X-axis (Red) if endpoint is in front of camera
+                if x_depth > 0:
+                    x_2d = (x_u, x_v)
+                    if clip_to_bounds(origin_2d, x_2d):
+                        cv2.arrowedLine(result, origin_2d, x_2d, (0, 0, 255), line_thickness, tipLength=0.2)
+
+                # Draw Y-axis (Green) if endpoint is in front of camera
+                if y_depth > 0:
+                    y_2d = (y_u, y_v)
+                    if clip_to_bounds(origin_2d, y_2d):
+                        cv2.arrowedLine(result, origin_2d, y_2d, (0, 255, 0), line_thickness, tipLength=0.2)
+
+                # Draw Z-axis (Blue) if endpoint is in front of camera
+                if z_depth > 0:
+                    z_2d = (z_u, z_v)
+                    if clip_to_bounds(origin_2d, z_2d):
+                        cv2.arrowedLine(result, origin_2d, z_2d, (255, 0, 0), line_thickness, tipLength=0.2)
+
+                # Draw origin point (larger and more visible)
+                if 0 <= origin_u < width and 0 <= origin_v < height:
+                    cv2.circle(result, origin_2d, 8, (255, 255, 255), -1)
+                    cv2.circle(result, origin_2d, 10, (0, 0, 0), 2)
+
+        return result
+
+    @staticmethod
+    def visualize_poses_2d(image: np.ndarray, poses: List[Dict],
+                          camera_intrinsics: Dict,
+                          save_path: Optional[str] = None,
+                          axis_length: float = 0.15,
+                          line_thickness: int = 5) -> np.ndarray:
+        """
+        Visualize multiple 6D poses on a 2D image.
+
+        Args:
+            image: Input color image
+            poses: List of pose dictionaries
+            camera_intrinsics: Camera intrinsics dictionary
+            save_path: Optional path to save the visualization
+            axis_length: Length of coordinate axes in meters (default 0.15m)
+            line_thickness: Thickness of axes lines (default 5)
+
+        Returns:
+            Image with visualized poses
+        """
+        result = image.copy()
+
+        print(f"    Visualizing {len(poses)} poses on 2D image...")
+
+        # Draw each pose
+        drawn_count = 0
+        for i, pose in enumerate(poses):
+            before_hash = hash(result.tobytes())
+            result = Visualizer.draw_pose_axes_2d(result, pose, camera_intrinsics,
+                                                 axis_length=axis_length,
+                                                 line_thickness=line_thickness)
+            after_hash = hash(result.tobytes())
+
+            if before_hash != after_hash:
+                drawn_count += 1
+                print(f"      ✓ Pose {i} axes drawn successfully")
+            else:
+                print(f"      ⚠ Pose {i} axes not drawn (may be outside view)")
+
+        print(f"    Successfully drew {drawn_count}/{len(poses)} pose visualizations")
+
+        if save_path:
+            cv2.imwrite(save_path, result)
+
+        return result

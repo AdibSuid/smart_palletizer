@@ -224,36 +224,47 @@ class BoxDetector:
         
         return boxes
     
-    def draw_detections(self, image: np.ndarray, boxes: List[Dict], 
+    def draw_detections(self, image: np.ndarray, boxes: List[Dict],
                        box_type: str = "box") -> np.ndarray:
         """
-        Draw detected boxes on the image.
-        
+        Draw detected boxes on the image with semi-transparent overlay.
+
         Args:
             image: Input image
             boxes: List of detected boxes
             box_type: Type label for the boxes
-            
+
         Returns:
             Image with drawn detections
         """
         result = image.copy()
-        
-        for box in boxes:
-            # Draw bounding box
-            x, y, w, h = box['bbox']
-            cv2.rectangle(result, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            
-            # Draw rotated rectangle
-            cv2.drawContours(result, [box['box_points']], 0, (255, 0, 0), 2)
-            
+        overlay = image.copy()
+
+        for i, box in enumerate(boxes):
+            # Create semi-transparent filled overlay for rotated rectangle
+            cv2.fillPoly(overlay, [box['box_points']], (0, 0, 255))  # Red fill
+
+            # Draw rotated rectangle outline
+            cv2.drawContours(result, [box['box_points']], 0, (0, 255, 0), 2)  # Green outline
+
             # Draw center
             cx, cy = box['center']
             cv2.circle(result, (cx, cy), 5, (0, 0, 255), -1)
-            
-            # Add label
-            label = f"{box_type}_{box['id']}"
-            cv2.putText(result, label, (x, y - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
+
+            # Add label with confidence (100% since using masks)
+            x, y, w, h = box['bbox']
+            label = f"{box_type} 100%"
+
+            # Add background rectangle for text
+            (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.rectangle(result, (x, y - text_h - baseline - 5),
+                         (x + text_w, y), (0, 0, 0), -1)
+
+            # Draw text
+            cv2.putText(result, label, (x, y - baseline - 2),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        # Blend overlay with original image (30% transparency)
+        result = cv2.addWeighted(overlay, 0.3, result, 0.7, 0)
+
         return result

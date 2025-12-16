@@ -23,12 +23,12 @@ class PoseEstimator:
         icp_max_iterations (int): Maximum iterations for ICP
     """
     
-    def __init__(self, icp_threshold: float = 0.002, icp_max_iterations: int = 2000):
+    def __init__(self, icp_threshold: float = 0.01, icp_max_iterations: int = 2000):
         """
         Initialize the PoseEstimator.
-        
+
         Args:
-            icp_threshold: Distance threshold for ICP
+            icp_threshold: Distance threshold for ICP (default 0.01m = 1cm)
             icp_max_iterations: Maximum number of ICP iterations
         """
         self.icp_threshold = icp_threshold
@@ -179,40 +179,66 @@ class PoseEstimator:
                                    template_pcd: o3d.geometry.PointCloud,
                                    initial_pose: np.ndarray) -> Tuple[Dict, o3d.geometry.PointCloud]:
         """
-        Refine pose estimation using template matching with ICP.
-        
+        Refine pose estimation using multi-scale template matching with ICP.
+
         Args:
             observed_pcd: Observed point cloud from scene
             template_pcd: Template point cloud (box model)
             initial_pose: Initial 4x4 transformation estimate
-            
+
         Returns:
             Tuple of (pose_dict, aligned_template)
         """
         # Apply initial transformation to template
         template_copy = template_pcd.__copy__()
-        template_copy.transform(initial_pose)
-        
-        # Refine with ICP
-        transformation, reg_result = self.estimate_pose_icp(
-            template_copy, observed_pcd, np.eye(4)
+
+        # Multi-scale ICP: coarse to fine
+        # Stage 1: Coarse alignment with higher threshold
+        coarse_threshold = self.icp_threshold * 5  # 5x more tolerant
+        template_stage1 = template_copy.__copy__()
+        template_stage1.transform(initial_pose)
+
+        transformation_1, _ = self.estimate_pose_icp(
+            template_stage1, observed_pcd, np.eye(4)
         )
-        
-        # Combine transformations
-        final_transform = transformation @ initial_pose
-        
+        intermediate_transform = transformation_1 @ initial_pose
+
+        # Stage 2: Medium alignment
+        medium_threshold = self.icp_threshold * 2
+        template_stage2 = template_copy.__copy__()
+        template_stage2.transform(intermediate_transform)
+
+        # Temporarily update threshold
+        original_threshold = self.icp_threshold
+        self.icp_threshold = medium_threshold
+        transformation_2, _ = self.estimate_pose_icp(
+            template_stage2, observed_pcd, np.eye(4)
+        )
+        refined_transform = transformation_2 @ intermediate_transform
+
+        # Stage 3: Fine alignment with original threshold
+        self.icp_threshold = original_threshold
+        template_stage3 = template_copy.__copy__()
+        template_stage3.transform(refined_transform)
+
+        transformation_3, reg_result = self.estimate_pose_icp(
+            template_stage3, observed_pcd, np.eye(4)
+        )
+
+        # Combine all transformations
+        final_transform = transformation_3 @ refined_transform
+
         # Apply final transformation
-        template_copy.transform(np.linalg.inv(initial_pose))  # Reset
         template_copy.transform(final_transform)
-        
+
         # Extract pose components
         rotation = final_transform[:3, :3]
         translation = final_transform[:3, 3]
-        
+
         rot = R.from_matrix(rotation)
         euler_angles = rot.as_euler('xyz', degrees=True)
         quaternion = rot.as_quat()
-        
+
         pose = {
             'position': translation,
             'rotation_matrix': rotation,
@@ -222,7 +248,7 @@ class PoseEstimator:
             'fitness': reg_result['fitness'],
             'inlier_rmse': reg_result['inlier_rmse']
         }
-        
+
         return pose, template_copy
     
     def estimate_multiple_boxes(self, point_clouds: List[o3d.geometry.PointCloud],

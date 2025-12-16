@@ -235,7 +235,7 @@ def run_task4_pose_estimation(data_folder: Path, box_type: str = "small_box"):
 
     # Initialize processors
     pcd_processor = PointCloudProcessor()
-    pose_estimator = PoseEstimator(icp_threshold=0.002, icp_max_iterations=2000)
+    pose_estimator = PoseEstimator(icp_threshold=0.01, icp_max_iterations=2000)
     box_extractor = BoxExtractor(eps=0.02, min_points=50)
 
     # Define box dimensions (from task description)
@@ -287,14 +287,36 @@ def run_task4_pose_estimation(data_folder: Path, box_type: str = "small_box"):
     Visualizer.save_results_to_file(poses, str(results_file))
     print(f"Results saved to: {results_file}")
 
-    # Visualize poses
+    # Visualize poses in 3D
     if poses:
-        print("\nVisualizing estimated poses (close window to continue)...")
+        print("\nVisualizing estimated poses in 3D (close window to continue)...")
         try:
             Visualizer.visualize_poses(cleaned_clouds, poses, box_dimensions,
                                        window_name=f"Pose Estimation - {box_type}")
         except Exception as e:
-            print(f"  Note: Visualization skipped (display not available): {e}")
+            print(f"  Note: 3D visualization skipped (display not available): {e}")
+
+    # Create 2D pose visualization on color image
+    if poses:
+        print("\nCreating 2D pose visualization on color image...")
+        try:
+            # Load color image
+            color_image_path = data_folder / "color_image.png"
+            color_image = cv2.imread(str(color_image_path))
+
+            # Load camera intrinsics
+            intrinsics_path = data_folder / "intrinsics.json"
+            camera_intrinsics = load_camera_intrinsics(str(intrinsics_path))
+
+            # Create 2D pose visualization
+            pose_2d_image = Visualizer.visualize_poses_2d(color_image, poses, camera_intrinsics)
+
+            # Save result
+            pose_2d_path = data_folder / f"{box_type}_pose_2d_result.png"
+            cv2.imwrite(str(pose_2d_path), pose_2d_image)
+            print(f"2D pose visualization saved to: {pose_2d_path}")
+        except Exception as e:
+            print(f"  Note: 2D pose visualization failed: {e}")
 
     return poses, cleaned_clouds
 
